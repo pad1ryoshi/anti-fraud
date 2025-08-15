@@ -1,40 +1,49 @@
-### Inicie a API: uvicorn main:app --reload
+### Arquivo de Teste para a API Antifraude v3.0 (Final) ###
+
+# Lembre-se de iniciar o servidor antes de enviar as requisições:
+# uvicorn main:app --reload
+
+# --------------------------------------------------------------------
 
 ###
-POST http://127.0.0.1:8000/check-fraud
+# CENÁRIO 1: Requisição de BAIXO RISCO (João Silva)
+# Objetivo: Simular um usuário conhecido, em um dispositivo confiável e sem atividades suspeitas.
+# Resultado Esperado: Baixo score de fraude, "APROVACAO_AUTOMATICA".
+POST http://127.0.0.1:8000/api/check_fraud
 Content-Type: application/json
 
 {
     "cpf": "111.111.111-11",
-    "houve_alteracao_cadastral_recente": false,
-    "valor_solicitado": 3000.00,
+    "dispositivo_fingerprint": "e4d5f6a7b8c9d0e1f2a3b4c5d6e7f8a9",
+    "valor_solicitado": 3500.00,
     "numero_parcelas": 48,
     "banco_para_deposito": {
-        "banco": "001", "agencia": "1234", "conta": "56789-0"
+        "banco": "001",
+        "agencia": "1234",
+        "conta": "56789-0"
     },
-    "ip_origem": "177.15.23.11",
-    "geolocalizacao_ip": "João Pessoa, PB",
-    "dispositivo_fingerprint": "e4d5f6a7b8c9d0e1f2a3b4c5d6e7f8a9",
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
-    "tempo_preenchimento_formulario_segundos": 125
+    "alteracoes_recentes": []
 }
 
+# --------------------------------------------------------------------
 
 ###
-POST http://127.0.0.1:8000/check-fraud
+# CENÁRIO 2: Requisição de ALTO RISCO (Maria Oliveira)
+# Objetivo: Simular uma tentativa de fraude com múltiplos indicadores de risco,
+# conforme as regras do nosso prompt.
+# Resultado Esperado: Alto score de fraude, "BLOQUEIO_AUTOMATICO_E_REVISAO_MANUAL".
+POST http://127.0.0.1:8000/api/check_fraud
 Content-Type: application/json
 
 {
     "cpf": "222.222.222-22",
-    "houve_alteracao_cadastral_recente": true,
-    "valor_solicitado": 2500.00,
+    "dispositivo_fingerprint": "a1b2c3d4e5f6-NOVO-DISPOSITIVO-a1b2c3d4e5f6",
+    "valor_solicitado": 2450.00,
     "numero_parcelas": 72,
     "banco_para_deposito": {
-        "banco": "260", "agencia": "0001", "conta": "98765-4"
+        "banco": "260",
+        "agencia": "0001",
+        "conta": "98765-4"
     },
-    "ip_origem": "200.220.10.5",
-    "geolocalizacao_ip": "Rio de Janeiro, RJ",
-    "dispositivo_fingerprint": "a7b1c9d8e2f3a4b5c6d7e8f901a2b3c4",
-    "user_agent": "Python/3.9 aiohttp/3.8.1",
-    "tempo_preenchimento_formulario_segundos": 8
+    "alteracoes_recentes": ["banco", "contato"]
 }
