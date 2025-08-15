@@ -1,4 +1,4 @@
-# database.py (versão atualizada)
+# database.py (VERSÃO FINAL E CORRETA)
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
@@ -17,7 +17,7 @@ class Usuario(Base):
     cpf = Column(String, unique=True, index=True)
     email = Column(String, unique=True)
     telefone = Column(String)
-    endereco_registrado = Column(String) # Ex: "João Pessoa, PB"
+    endereco_registrado = Column(String)
     margem_consignavel = Column(Float)
     
     transacoes = relationship("HistoricoTransacao", back_populates="usuario")
@@ -28,14 +28,16 @@ class HistoricoTransacao(Base):
     usuario_id = Column(Integer, ForeignKey("usuarios.id"))
     valor = Column(Float)
     data_hora = Column(DateTime)
-    status = Column(String) # Ex: "Aprovado", "Recusado", "Análise"
-    
-    # --- CAMPOS DE METADADOS ATUALIZADOS ---
+    status = Column(String)
     ip = Column(String)
-    geolocalizacao = Column(String) # Ex: "Campina Grande, PB"
-    dispositivo_fingerprint = Column(String) # NOVO
-    user_agent = Column(String) # NOVO (substituindo o antigo 'dispositivo')
-    tempo_preenchimento_formulario_segundos = Column(Integer) # NOVO
+    geolocalizacao = Column(String)
+    
+    # --- COLUNAS QUE ESTAVAM FALTANDO NA SUA DEFINIÇÃO ---
+    dispositivo_fingerprint = Column(String)
+    user_agent = Column(String)
+    tempo_preenchimento_formulario_segundos = Column(Integer)
+    foi_fraude = Column(Boolean, default=False)
+    justificativa_fraude = Column(String, nullable=True)
     
     usuario = relationship("Usuario", back_populates="transacoes")
 
