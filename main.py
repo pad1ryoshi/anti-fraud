@@ -1,91 +1,96 @@
-# main.py (versão corrigida)
+# main.py (Versão Final Corrigida)
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from datetime import datetime
-from typing import Optional
+from typing import List
 
-# --- CORREÇÃO NA IMPORTAÇÃO ---
-# Removemos o "import models" e importamos diretamente de "database"
+# Importações dos outros arquivos
 from database import get_db, Usuario, HistoricoTransacao
 from fraud_detector import analyze_transaction
 
 app = FastAPI(
-    title="IA contra Fraude - Hackathon API v2",
-    description="API com suporte a múltiplos LLMs para detectar fraudes em crédito consignado.",
-    version="2.0.0"
+    title="IFTech - API Antifraude",
+    description="API para detecção de fraudes em crédito consignado usando IA.",
+    version="3.0.1"
 )
 
-# --- Pydantic Models (sem alterações) ---
-class Endereco(BaseModel):
-    cep: str
-    logradouro: str
-    numero: str
-    cidade: str
-    estado: str
-
+# --- Modelos de Dados (Pydantic) ---
 class BancoDeposito(BaseModel):
     banco: str
     agencia: str
     conta: str
 
-class LoanRequest(BaseModel):
-    cpf: str = Field(..., example="222.222.222-22")
-    houve_alteracao_cadastral_recente: bool = Field(..., example=True)
-    valor_solicitado: float = Field(..., example=2500.00)
-    numero_parcelas: int = Field(..., example=72)
+class LoanRequestFinal(BaseModel):
+    cpf: str
+    dispositivo_fingerprint: str
+    valor_solicitado: float
+    numero_parcelas: int
     banco_para_deposito: BancoDeposito
-    ip_origem: str = Field(..., example="200.220.10.5")
-    geolocalizacao_ip: str = Field(..., example="Rio de Janeiro, RJ")
-    dispositivo_fingerprint: str = Field(..., example="a7b1c9d8e2f3a4b5c6d7e8f901a2b3c4")
-    user_agent: str = Field(..., example="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36")
-    tempo_preenchimento_formulario_segundos: int = Field(..., example=15)
+    alteracoes_recentes: List[str] = Field(..., example=["contato", "banco"])
 
-class FraudAnalysisResponse(BaseModel):
-    is_fraudulent: bool
-    fraud_score: int
-    fraud_type_code: str
-    justification: str
-    recommended_action: str
-
-# --- Endpoint da API (com correção nas queries) ---
-@app.post("/check-fraud", response_model=FraudAnalysisResponse)
-def check_fraud(request: LoanRequest, db: Session = Depends(get_db)):
-    # --- CORREÇÃO NA QUERY: removemos o prefixo "models." ---
-    user = db.query(Usuario).filter(Usuario.cpf == request.cpf).first()
+# --- ROTA ÚNICA ---
+@app.post("/api/check_fraud")
+def check_fraud(request_data: LoanRequestFinal, request: Request, db: Session = Depends(get_db)):
+    client_ip = request.client.host
+    user_agent = request.headers.get("user-agent", "Desconhecido")
+    
+    user = db.query(Usuario).filter(Usuario.cpf == request_data.cpf).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
-
-    # --- CORREÇÃO NA QUERY: removemos o prefixo "models." ---
-    history = db.query(HistoricoTransacao).filter(HistoricoTransacao.usuario_id == user.id).all()
     
-    context_data = {
-        "user_data": {
-            "nome": user.nome,
-            "endereco_registrado": user.endereco_registrado,
-            "margem_consignavel": user.margem_consignavel
-        },
-        "transaction_history": [
-            {
-                "valor": h.valor, 
-                "data_hora": h.data_hora.isoformat(), 
-                "ip": h.ip, 
-                "geolocalizacao": h.geolocalizacao,
-                "dispositivo_fingerprint": h.dispositivo_fingerprint,
-                "user_agent": h.user_agent,
-                "tempo_preenchimento_formulario_segundos": h.tempo_preenchimento_formulario_segundos
-            } for h in history
-        ],
-        "current_transaction": {
-            **request.model_dump(),
-            "data_hora": datetime.now().isoformat()
-        }
+    history = db.query(HistoricoTransacao).filter(HistoricoTransacao.usuario_id == user.id).order_by(HistoricoTransacao.data_hora.desc()).all()
+
+    # --- CORREÇÃO DO ERRO "JSON Serializable" ---
+    # Criamos o dicionário do histórico manualmente, evitando dados internos do SQLAlchemy.
+    history_for_ia = [
+        {
+            "valor": h.valor,
+            "data_hora": h.data_hora.isoformat(),
+            "ip": h.ip,
+            "geolocalizacao": h.geolocalizacao,
+            "dispositivo_fingerprint": h.dispositivo_fingerprint,
+            "foi_fraude": h.foi_fraude
+        } for h in history
+    ]
+
+    current_transaction_data = {
+        **request_data.model_dump(),
+        "ip_origem": client_ip,
+        "geolocalizacao_ip": "A ser inferida",
+        "user_agent": user_agent,
+        "tempo_preenchimento_formulario_segundos": 60,
+        "data_hora": datetime.now().isoformat()
+    }
+    
+    context = {
+        "user_data": { "nome": user.nome, "endereco_registrado": user.endereco_registrado, "margem_consignavel": user.margem_consignavel },
+        "transaction_history": history_for_ia, # Usando a lista limpa
+        "current_transaction": current_transaction_data
     }
 
-    analysis_result = analyze_transaction(context_data)
+    analysis_result = analyze_transaction(context)
+    is_fraudulent = analysis_result.get("is_fraudulent", False)
+
+    nova_transacao = HistoricoTransacao(
+        usuario_id=user.id,
+        valor=request_data.valor_solicitado,
+        data_hora=datetime.now(),
+        status="BLOQUEADO_POR_FRAUDE" if is_fraudulent else "APROVADO_AUTOMATICAMENTE",
+        ip=client_ip,
+        geolocalizacao="A ser inferida",
+        dispositivo_fingerprint=request_data.dispositivo_fingerprint,
+        user_agent=user_agent,
+        tempo_preenchimento_formulario_segundos=60,
+        foi_fraude=is_fraudulent,
+        justificativa_fraude=analysis_result.get("justification")
+    )
+    db.add(nova_transacao)
+    db.commit()
+
     return analysis_result
 
 @app.get("/")
 def read_root():
-    return {"message": "Bem-vindo à API de Detecção de Fraude v2!"}
+    return {"message": "API Antifraude IFTech - Operacional"}
